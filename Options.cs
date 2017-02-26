@@ -3,9 +3,10 @@ using System.Text.RegularExpressions;
 namespace Pitch {
 
     public class Options {
-        private static string WildcardToRegex(string wildcard)
+        private static Regex WildcardToRegex(string wildcard)
         {
-            return "^" + Regex.Escape(wildcard).Replace("\\?", ".").Replace("\\*", ".*")+ "$";
+            var pattern = "^" + Regex.Escape(wildcard).Replace("\\?", ".").Replace("\\*", ".*")+ "$";
+            return new Regex(pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
         }
 
         public enum DiagnosticsLevel {
@@ -15,13 +16,13 @@ namespace Pitch {
             Verbose
         }
 
-        public string Pattern {get; private set;}
+        public Regex Pattern {get; private set;}
         public string OutDir {get; private set;}
         public DiagnosticsLevel Diagnostics {get; private set;}
 
         public static Options ParseOptions(string[] args){
             return new Options {
-                Pattern = WildcardToRegex("*pitch.*"),
+                Pattern = WildcardToRegex("*.html"),
                 OutDir = "",
                 Diagnostics = DiagnosticsLevel.Warnings
             };
