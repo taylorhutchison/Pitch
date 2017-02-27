@@ -10,8 +10,10 @@ namespace Pitch
 {
     class Program
     {
+        static readonly string layoutRegex = ".*layout=\"(.*)\"";
+        static readonly string layoutOutletPattern = "@layout-outlet";
         static IEnumerable<string> FilePaths;
-        static Dictionary<string, string> Layouts = new Dictionary<string,string>();
+        static Dictionary<string, string> Layouts = new Dictionary<string, string>();
 
         static IEnumerable<string> DirSearch(string directory, Options options)
         {
@@ -29,9 +31,15 @@ namespace Pitch
             }
             return files;
         }
-
-        static string GetLayoutPath(string filePath, string layoutPath)
+        static string ReadLayoutPath(string firstLine, string layoutRegex)
         {
+            var match = Regex.Match(firstLine, layoutRegex, RegexOptions.IgnoreCase);
+            return match?.Groups[1]?.Captures[0]?.Value;
+
+        }
+        static string GetLayoutPath(string filePath, string firstLine, string layoutRegex)
+        {
+            var layoutPath = ReadLayoutPath(firstLine, layoutRegex);
             var count = Regex.Matches(Regex.Escape(layoutPath), @"../").Count;
             var relativeFileName = Path.GetFileName(layoutPath);
             var filePathParts = filePath.Split('/');
@@ -51,12 +59,33 @@ namespace Pitch
             return contents;
         }
 
+        static StreamReader OpenFileForRead(string file)
+        {
+            var stream = new FileStream(file, FileMode.Open, FileAccess.Read);
+            return new StreamReader(stream as FileStream, Encoding.UTF8, true, 512);
+        }
+
+
+        static string CombinedContents(StreamReader reader, string layoutContents)
+        {
+            var fileContents = reader.ReadToEnd();
+            return layoutContents.Replace(layoutOutletPattern, fileContents);
+        }
+
+        static void WriteLayoutContents(string combinedContents, string file, Options options, string cwd)
+        {
+
+            var outPath = options.OutDir + file.Replace(cwd, "");
+            Directory.CreateDirectory(outPath.Replace(Path.GetFileName(outPath), ""));
+            var outStream = new FileStream(outPath, FileMode.Create, FileAccess.Write);
+            var writer = new StreamWriter(outStream as FileStream, Encoding.UTF8, 512);
+            writer.Write(combinedContents);
+            writer.Flush();
+        }
+
         static void Main(string[] args)
         {
-            const string layoutRegex = ".*layout=\"(.*)\"";
             var options = ParseOptions(args);
-            Console.WriteLine($"Options: searchDir = {options.SearchDir}, pattern = {options.Pattern}, outDir = {options.OutDir}, diagnostics = {options.Diagnostics}");
-            //Phase 1: Discover
 
             Directory.SetCurrentDirectory(options.SearchDir);
             var cwd = Directory.GetCurrentDirectory();
@@ -65,30 +94,18 @@ namespace Pitch
 
             FilePaths = DirSearch(cwd, options);
 
-            //Phase 2: Link
             foreach (var file in FilePaths)
             {
-                var stream = new FileStream(file, FileMode.Open, FileAccess.Read);
-                var reader = new StreamReader(stream as FileStream, Encoding.UTF8, true, 512);
+                var reader = OpenFileForRead(file);
                 var line = reader.ReadLine();
                 if (Regex.IsMatch(line, layoutRegex, RegexOptions.IgnoreCase))
                 {
-                    var fileContents = reader.ReadToEnd();
-                    var match = Regex.Match(line, layoutRegex, RegexOptions.IgnoreCase);
-                    var layout = match?.Groups[1]?.Captures[0]?.Value;
-                    var layoutPath = GetLayoutPath(file, layout);
+                    var layoutPath = GetLayoutPath(file, line, layoutRegex);
                     string layoutContents = GetLayoutContents(layoutPath);
-                    var combinedContents = layoutContents.Replace("@layout-outlet", fileContents);
-                    var outPath = options.OutDir + file.Replace(cwd, "");
-                    Directory.CreateDirectory(outPath.Replace(Path.GetFileName(outPath),""));
-                    var outStream = new FileStream(outPath, FileMode.Create, FileAccess.Write);
-                    var writer = new StreamWriter(outStream as FileStream, Encoding.UTF8, 512);
-                    writer.Write(combinedContents);
-                    writer.Flush();
+                    var combinedContents = CombinedContents(reader, layoutContents);
+                    WriteLayoutContents(combinedContents, file, options, cwd);
                 }
             }
-
-            //Phase 3: Diagnostics
         }
     }
 }
